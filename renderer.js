@@ -2,11 +2,14 @@ const axios = require('axios');
 const moment = require('moment');
 require('dotenv').config();
 
-// Clockify API Configuration
+// Configurazione API Clockify
 const CLOCKIFY_API_KEY = process.env.CLOCKIFY_API_KEY;
 const WORKSPACE_ID = process.env.WORKSPACE_ID;
 const USER_ID = process.env.USER_ID;
 
+let projectMap = new Map();
+
+// Creazione istanza Axios per le chiamate API
 const clockifyApi = axios.create({
     baseURL: 'https://api.clockify.me/api/v1',
     headers: {
@@ -15,15 +18,30 @@ const clockifyApi = axios.create({
     }
 });
 
-// Timer Variables
-let timerStartTime = null;
-let timerInterval = null;
+// Ottengo la mappa dei progetti per visualizzare i nomi dei progetti
+async function getProjectMap() {
+    projectMap = await fetchProjectMap(WORKSPACE_ID);
+}
 
-// Charts Storage
-let projectTimeChart = null;
-let timeDistributionChart = null;
+/**
+ * Recupera tutti progetti da Clockify per un workspace specifico 
+ * @param {string} workspaceId - Workspace ID per cui recuperare i progetti
+ */
+async function fetchProjectMap(workspaceId) {
+    try {
+      const response = await clockifyApi.get(`/workspaces/${workspaceId}/projects`);
+      const projectMap = new Map();
+      response.data.forEach(project => {
+        projectMap.set(project.id, project.name);
+      });
+      return projectMap;
+    } catch (error) {
+      console.error("Errore ottenendo i progetti:", error);
+      return new Map();
+    }
+  }
 
-// Time Period Mapping
+// Oggetto per mappare i periodi di tempo alle date corrispondenti
 const PERIOD_MAPPING = {
     'today': () => ({
         start: moment().startOf('day').toISOString(),
@@ -47,48 +65,61 @@ const PERIOD_MAPPING = {
     })
 };
 
-// Timer Functions (Previous implementation remains the same)
-function startTimer() { /* ... */ }
-function stopTimer() { /* ... */ }
-function updateTimerDisplay() { /* ... */ }
+// Variabili globali per i grafici
+let projectTimeChart = null;
+let timeDistributionChart = null;
 
-// Fetch Time Entries with Period Selection
+/**
+ * Recupera le voci temporali da Clockify per un periodo specifico
+ * @param {string} period - Periodo di tempo da recuperare (oggi, 3 giorni, settimana, mese, anno)
+ */
 async function fetchTimeEntries(period = 'week') {
     try {
+        console.log(`🕒 Recupero voci temporali per il periodo: ${period}`);
+
+        // Ottiene l'intervallo di date per il periodo selezionato
         const { start, end } = PERIOD_MAPPING[period]();
-        
+
+        // Richiesta API per recuperare le voci temporali
         const response = await clockifyApi.get(`/workspaces/${WORKSPACE_ID}/user/${USER_ID}/time-entries`, {
-            params: {
-                start: start,
-                end: end,
-                page: 1,
-                pageSize: 1000  // Adjust as needed
-            }
+            params: { start: start, end: end, page: 1, pageSize: 1000 }
         });
 
-        // Update UI elements
+        console.log(`🔍 Date selezionate - Inizio: ${start}, Fine: ${end}`);
+        
+        console.log(`📩 Dati ricevuti dalla API: `, response.data);
+
+        // Aggiorna gli elementi dell'interfaccia
         updatePeriodDisplay(period);
         displayTimeEntries(response.data);
         renderCharts(response.data);
     } catch (error) {
-        console.error('Error fetching time entries:', error);
+        console.error('Errore nel recupero delle voci temporali:', error);
         displayErrorMessage('Impossibile recuperare i dati del periodo');
     }
 }
 
+/**
+ * Aggiorna la visualizzazione dei bottoni del periodo
+ * @param {string} period - Periodo attualmente selezionato
+ */
 function updatePeriodDisplay(period) {
     const periodButtons = document.querySelectorAll('.period-btn');
     periodButtons.forEach(btn => {
-        btn.classList.remove('bg-blue-600');
+        btn.classList.remove('bg-green-600');
         btn.classList.add('bg-gray-700');
         
         if (btn.dataset.period === period) {
             btn.classList.remove('bg-gray-700');
-            btn.classList.add('bg-blue-600');
+            btn.classList.add('bg-green-600');
         }
     });
 }
 
+/**
+ * Visualizza un messaggio di errore
+ * @param {string} message - Messaggio di errore da visualizzare
+ */
 function displayErrorMessage(message) {
     const errorContainer = document.getElementById('errorContainer');
     errorContainer.textContent = message;
@@ -99,6 +130,10 @@ function displayErrorMessage(message) {
     }, 3000);
 }
 
+/**
+ * Visualizza le voci temporali in una tabella
+ * @param {Array} entries - Elenco delle voci temporali
+ */
 function displayTimeEntries(entries) {
     const tableBody = document.getElementById('timeEntriesBody');
     tableBody.innerHTML = '';
@@ -106,27 +141,46 @@ function displayTimeEntries(entries) {
     entries.forEach(entry => {
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td>${entry.project?.name || 'No Project'}</td>
-            <td>${entry.description}</td>
+            <td>${extractProjectName(entry.projectId)}</td>
+            <td>${entry.description || 'Nessuna descrizione'}</td>
             <td>${moment.duration(entry.timeInterval.duration).humanize()}</td>
-            <td>${moment(entry.timeInterval.start).format('YYYY-MM-DD')}</td>
+            <td>${moment(entry.timeInterval.start).format('DD-MM-YYYY')}</td>
         `;
         tableBody.appendChild(row);
     });
 }
 
+/**
+ * Estrae il nome del progetto da una voce temporale
+ * @param {Object} entry - Voce temporale di Clockify
+ * @returns {string} Nome del progetto o 'Nessun Progetto'
+ */
+function extractProjectName(entry) {
+
+    if(projectMap.has(entry.projectId)){
+        return projectMap.get(entry.projectId);
+    }
+
+    return 'Not Definined';
+}
+
+/**
+ * Genera grafici per distribuzione tempo e progetti
+ * @param {Array} entries - Elenco delle voci temporali
+ */
 function renderCharts(entries) {
-    // Destroy existing charts if they exist
+    // Distrugge i grafici esistenti
     if (projectTimeChart) projectTimeChart.destroy();
     if (timeDistributionChart) timeDistributionChart.destroy();
 
-    // Project Time Distribution Chart
+    // Calcolo tempo per progetto
     const projectTimes = entries.reduce((acc, entry) => {
-        const projectName = entry.project?.name || 'No Project';
+        const projectName = extractProjectName(entry.projectId);
         acc[projectName] = (acc[projectName] || 0) + moment.duration(entry.timeInterval.duration).asHours();
         return acc;
     }, {});
 
+    // Grafico a torta per tempo per progetto
     projectTimeChart = new ApexCharts(document.getElementById('projectTimeChart'), {
         series: Object.values(projectTimes),
         labels: Object.keys(projectTimes),
@@ -149,13 +203,14 @@ function renderCharts(entries) {
     });
     projectTimeChart.render();
 
-    // Weekly Time Distribution Chart
+    // Raggruppa dati per distribuzione temporale
     const groupedData = entries.reduce((acc, entry) => {
         const day = moment(entry.timeInterval.start).format('ddd');
         acc[day] = (acc[day] || 0) + moment.duration(entry.timeInterval.duration).asHours();
         return acc;
     }, {});
 
+    // Grafico a barre per distribuzione tempo
     timeDistributionChart = new ApexCharts(document.getElementById('timeDistributionChart'), {
         series: [{
             name: 'Ore',
@@ -187,11 +242,7 @@ function renderCharts(entries) {
     timeDistributionChart.render();
 }
 
-// Event Listeners
-document.getElementById('startTimer').addEventListener('click', startTimer);
-document.getElementById('stopTimer').addEventListener('click', stopTimer);
-
-// Period Selection Event Listeners
+// Aggiunge event listener ai bottoni del periodo
 document.querySelectorAll('.period-btn').forEach(button => {
     button.addEventListener('click', (e) => {
         const period = e.target.dataset.period;
@@ -199,7 +250,10 @@ document.querySelectorAll('.period-btn').forEach(button => {
     });
 });
 
-// Initial Load
+// Ottinieni la mappa dei progetti
+getProjectMap();
+
+// Caricamento iniziale dei dati (settimana corrente)
 document.addEventListener('DOMContentLoaded', () => {
-    fetchTimeEntries('week');  // Default to current week
+    fetchTimeEntries('week');
 });

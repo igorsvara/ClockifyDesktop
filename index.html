@@ -6,6 +6,9 @@
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/apexcharts@3.41.1/dist/apexcharts.min.css" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+
+    <script defer src="https://cdn.jsdelivr.net/npm/apexcharts@3.41.1/dist/apexcharts.min.js"></script>
+    <script defer src="renderer.js"></script>
 </head>
 <body class="bg-gray-900 text-white">
     <div class="container mx-auto p-6">
@@ -16,7 +19,7 @@
         <div class="flex justify-center space-x-4 mb-6">
             <button data-period="today" class="period-btn bg-gray-700 text-white px-4 py-2 rounded">Oggi</button>
             <button data-period="3days" class="period-btn bg-gray-700 text-white px-4 py-2 rounded">3 Giorni</button>
-            <button data-period="week" class="period-btn bg-blue-600 text-white px-4 py-2 rounded">Settimana</button>
+            <button data-period="week" class="period-btn bg-green-600 text-white px-4 py-2 rounded">Settimana</button>
             <button data-period="month" class="period-btn bg-gray-700 text-white px-4 py-2 rounded">Mese</button>
             <button data-period="year" class="period-btn bg-gray-700 text-white px-4 py-2 rounded">Anno</button>
         </div>
@@ -61,8 +64,5 @@
             </div>
         </div>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.41.1/dist/apexcharts.min.js"></script>
-    <script src="renderer.js"></script>
 </body>
 </html>
