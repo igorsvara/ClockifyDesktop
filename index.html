@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>Clockify Desktop Tracker</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/apexcharts@3.41.1/dist/apexcharts.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-gray-900 text-white">
+    <div class="container mx-auto p-6">
+        <!-- Error Container -->
+        <div id="errorContainer" class="bg-red-600 text-white p-4 mb-4 rounded hidden"></div>
+
+        <!-- Period Selection -->
+        <div class="flex justify-center space-x-4 mb-6">
+            <button data-period="today" class="period-btn bg-gray-700 text-white px-4 py-2 rounded">Oggi</button>
+            <button data-period="3days" class="period-btn bg-gray-700 text-white px-4 py-2 rounded">3 Giorni</button>
+            <button data-period="week" class="period-btn bg-blue-600 text-white px-4 py-2 rounded">Settimana</button>
+            <button data-period="month" class="period-btn bg-gray-700 text-white px-4 py-2 rounded">Mese</button>
+            <button data-period="year" class="period-btn bg-gray-700 text-white px-4 py-2 rounded">Anno</button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-6">
+            <!-- Timer Section (Unchanged) -->
+            <div class="bg-gray-800 p-4 rounded-lg">
+                <h2 class="text-xl mb-4">Time Tracker</h2>
+                <div id="timer" class="text-4xl text-center mb-4">00:00:00</div>
+                <div class="flex justify-center space-x-4">
+                    <button id="startTimer" class="bg-green-600 px-4 py-2 rounded">Start</button>
+                    <button id="stopTimer" class="bg-red-600 px-4 py-2 rounded">Stop</button>
+                </div>
+            </div>
+
+            <!-- Time Charts (Unchanged) -->
+            <div class="col-span-2 bg-gray-800 p-4 rounded-lg">
+                <h2 class="text-xl mb-4">Distribuzione Tempo</h2>
+                <div id="timeDistributionChart"></div>
+            </div>
+
+            <!-- Project Breakdown -->
+            <div class="bg-gray-800 p-4 rounded-lg">
+                <h2 class="text-xl mb-4">Tempo per Progetto</h2>
+                <div id="projectTimeChart"></div>
+            </div>
+
+            <!-- Detailed Time Log -->
+            <div class="col-span-2 bg-gray-800 p-4 rounded-lg">
+                <h2 class="text-xl mb-4">Voci Temporali</h2>
+                <table id="timeEntriesTable" class="w-full">
+                    <thead>
+                        <tr>
+                            <th>Progetto</th>
+                            <th>Descrizione</th>
+                            <th>Durata</th>
+                            <th>Data</th>
+                        </tr>
+                    </thead>
+                    <tbody id="timeEntriesBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.41.1/dist/apexcharts.min.js"></script>
+    <script src="renderer.js"></script>
+</body>
+</html>
