@@ -75,20 +75,14 @@ let timeDistributionChart = null;
  */
 async function fetchTimeEntries(period = 'week') {
     try {
-        console.log(`🕒 Recupero voci temporali per il periodo: ${period}`);
-
         // Ottiene l'intervallo di date per il periodo selezionato
         const { start, end } = PERIOD_MAPPING[period]();
 
         // Richiesta API per recuperare le voci temporali
         const response = await clockifyApi.get(`/workspaces/${WORKSPACE_ID}/user/${USER_ID}/time-entries`, {
-            params: { start: start, end: end, page: 1, pageSize: 1000 }
+            params: { 'start': start, 'end': end, 'page': 1, 'page-size': 1000 }
         });
-
-        console.log(`🔍 Date selezionate - Inizio: ${start}, Fine: ${end}`);
         
-        console.log(`📩 Dati ricevuti dalla API: `, response.data);
-
         // Aggiorna gli elementi dell'interfaccia
         updatePeriodDisplay(period);
         displayTimeEntries(response.data);
