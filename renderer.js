@@ -281,7 +281,30 @@ function renderDailyChart(entries) {
         },
         stroke: {
             curve: 'smooth',
-            width: 3
+            width: 2,
+            colors: ['#4CAF50']  // Verde come nel tema Python
+        },
+        fill: {
+            type: 'gradient',
+            gradient: {
+                shade: 'dark',
+                type: 'vertical',
+                shadeIntensity: 0.3,
+                opacityFrom: 0.7,
+                opacityTo: 0.2,
+                colorStops: [
+                    {
+                        offset: 0,
+                        color: '#4CAF50',
+                        opacity: 0.3
+                    },
+                    {
+                        offset: 100,
+                        color: '#4CAF50',
+                        opacity: 0
+                    }
+                ]
+            }
         },
         markers: {
             size: 4
@@ -290,25 +313,34 @@ function renderDailyChart(entries) {
             mode: 'dark'
         },
         title: {
-            text: 'Andamento del giorno ' + moment(selectedDate).format('DD/MM/YYYY'),
+            text: 'Ore Cumulative di Studio nella Giornata',
             align: 'center',
             style: {
-                color: '#fff'
+                color: '#A3BE8C'  // Colore testo verde chiaro
             }
         },
         xaxis: {
             categories: hourlyData.map(item => item.x),
             labels: {
                 style: {
-                    colors: '#fff'
+                    colors: '#A3BE8C'
                 }
-            }
+            },
+            title: {
+                text: 'Ora del Giorno',
+                style: {
+                    color: '#A3BE8C'
+                }
+            },
+            min: 6,
+            max: 24,
+            tickAmount: 18
         },
         yaxis: {
             title: {
-                text: 'Ore',
+                text: 'Ore Accumulate',
                 style: {
-                    color: '#fff'
+                    color: '#A3BE8C'
                 }
             },
             labels: {
@@ -316,27 +348,77 @@ function renderDailyChart(entries) {
                     return val.toFixed(1);
                 },
                 style: {
-                    colors: '#fff'
+                    colors: '#A3BE8C'
                 }
-            }
+            },
+            min: -1,
+            max: 9,
+            tickAmount: 10
+        },
+        annotations: {
+            yaxis: [{
+                y: 8,
+                borderColor: 'rgba(255, 0, 0, 0.5)',
+                label: {
+                    text: 'GOAL',
+                    position: 'right',
+                    style: {
+                        color: '#fff',
+                        background: 'transparent'
+                    }
+                }
+            }]
         },
         tooltip: {
             y: {
                 formatter: function(value) {
-                    return value.toFixed(2) + ' ore';
+                    const hours = Math.floor(value);
+                    const mins = Math.round((value - hours) * 60);
+                    return `${hours}h ${mins}min`;
                 }
             }
         },
+        grid: {
+            borderColor: '#444444',
+            row: {
+                colors: ['transparent', 'transparent']
+            },
+            column: {
+                colors: ['transparent', 'transparent']
+            }
+        },
         noData: {
-            text: 'Nessun dato disponibile',
+            text: 'NO DATA FOR THE DAY',
             align: 'center',
             verticalAlign: 'middle',
             style: {
-                color: '#888'
+                color: '#A3BE8C',
+                fontSize: '24px'
             }
         }
     });
     dailyChart.render();
+    
+    // Se ci sono dati, aggiungi l'annotazione con il totale di ore
+    if (hourlyData.length > 0) {
+        const totalHours = parseFloat(hourlyData[hourlyData.length - 1].y);
+        const hours = Math.floor(totalHours);
+        const mins = Math.round((totalHours - hours) * 60);
+        
+        dailyChart.addPointAnnotation({
+            x: hourlyData[hourlyData.length - 1].x,
+            y: totalHours,
+            label: {
+                text: `${hours}h ${mins}min`,
+                style: {
+                    color: '#fff',
+                    background: 'transparent'
+                },
+                offsetX: -70,
+                offsetY: 12
+            }
+        });
+    }
 }
 
 /**
@@ -638,46 +720,54 @@ function renderYearlyChart(entries) {
  * @returns {Array} Dati aggregati per il grafico
  */
 function groupTimeDataByHour(entries) {
+    // Inizializza array di oggetti 
     const hourlyData = {};
     
-    // Crea tutte le ore del giorno (0-23) con valore 0
-    for (let i = 0; i < 24; i++) {
+    // Crea tutte le ore del giorno (6-24) con valore 0
+    for (let i = 6; i <= 24; i++) {
         const hourKey = `${i.toString().padStart(2, '0')}:00`;
         hourlyData[hourKey] = 0;
     }
     
-    // Somma le ore per ogni voce temporale
-    entries.forEach(entry => {
+    // Ordina le entries per orario di inizio
+    const sortedEntries = [...entries].sort((a, b) => 
+        moment(a.timeInterval.start).valueOf() - moment(b.timeInterval.start).valueOf()
+    );
+    
+    // Per ogni voce, aggiungi la durata al totale cumulativo
+    let cumulativeHours = 0;
+    
+    sortedEntries.forEach(entry => {
         const startTime = moment(entry.timeInterval.start);
         const endTime = moment(entry.timeInterval.end);
         const durationHours = moment.duration(entry.timeInterval.duration).asHours();
         
-        // Se la registrazione è molto breve, aggiungila semplicemente all'ora di inizio
-        if (durationHours < 1 || startTime.hour() === endTime.hour()) {
-            const hourKey = startTime.format('HH:00');
-            hourlyData[hourKey] += durationHours;
-        } else {
-            // Altrimenti, distribuisci la durata tra le ore coperte
-            let currentHour = moment(startTime);
-            while (currentHour.isBefore(endTime)) {
-                const hourKey = currentHour.format('HH:00');
-                
-                // Calcola quanto tempo in questa ora (massimo 1 ora)
-                const nextHour = moment(currentHour).add(1, 'hour').startOf('hour');
-                const endOfSegment = moment.min(nextHour, endTime);
-                const segmentDuration = moment.duration(endOfSegment.diff(currentHour)).asHours();
-                
-                hourlyData[hourKey] += segmentDuration;
-                currentHour = nextHour;
-            }
+        // Aggiungi la durata al totale cumulativo
+        cumulativeHours += durationHours;
+        
+        // Aggiorna l'ora di fine con il nuovo totale
+        const hourKey = endTime.format('HH:00');
+        if (hourKey in hourlyData && endTime.hour() >= 6) {
+            hourlyData[hourKey] = cumulativeHours;
         }
     });
+    
+    // Propaga i valori cumulativi (per mantenere la linea grafica)
+    let lastValue = 0;
+    const hours = Object.keys(hourlyData).sort();
+    for (const hour of hours) {
+        if (hourlyData[hour] > 0) {
+            lastValue = hourlyData[hour];
+        } else {
+            hourlyData[hour] = lastValue;
+        }
+    }
     
     // Converte in formato per ApexCharts
     return Object.keys(hourlyData)
         .map(key => ({
             x: key,
-            y: hourlyData[key].toFixed(2)
+            y: parseFloat(hourlyData[key].toFixed(2))
         }))
         .sort((a, b) => a.x.localeCompare(b.x)); // Ordina per ora
 }
@@ -703,4 +793,141 @@ function groupTimeDataByDay(entries, period) {
             key = startTime.format('DD/MM'); // Giorno/Mese
         }
         
-        dailyData[key] = (dailyData[key] || 0) + moment.duration(entry.timeInterval.duration
+        dailyData[key] = (dailyData[key] || 0) + moment.duration(entry.timeInterval.duration).asHours();
+        
+dailyData[key] = (dailyData[key] || 0) + moment.duration(entry.timeInterval.duration).asHours();
+});
+
+// Per i diversi periodi, creo array diversi per ordinare i dati
+if (period === 'week') {
+// Ordina per giorno della settimana (Lun-Dom)
+const weekdayOrder = moment.weekdaysShort().map(d => d.substring(0, 3));
+sortedKeys = Object.keys(dailyData).sort((a, b) => weekdayOrder.indexOf(a) - weekdayOrder.indexOf(b));
+} else {
+// Ordina cronologicamente per altri periodi
+sortedKeys = Object.keys(dailyData).sort((a, b) => {
+    // Per formato DD/MM
+    const [dayA, monthA] = a.split('/').map(Number);
+    const [dayB, monthB] = b.split('/').map(Number);
+    
+    if (monthA !== monthB) return monthA - monthB;
+    return dayA - dayB;
+});
+}
+
+// Converte in formato per ApexCharts
+return sortedKeys.map(key => ({
+x: key,
+y: dailyData[key].toFixed(2)
+}));
+}
+
+/**
+* Raggruppa i dati temporali per mese (grafico annuale)
+* @param {Array} entries - Elenco delle voci temporali
+* @returns {Array} Dati aggregati per il grafico
+*/
+function groupTimeDataByMonth(entries) {
+const monthlyData = {};
+
+// Crea tutti i mesi dell'anno con valore 0
+const months = moment.months().map(m => m.substring(0, 3));
+months.forEach(month => {
+monthlyData[month] = 0;
+});
+
+// Somma le ore per ogni voce temporale
+entries.forEach(entry => {
+const startTime = moment(entry.timeInterval.start);
+const monthKey = startTime.format('MMM');
+monthlyData[monthKey] += moment.duration(entry.timeInterval.duration).asHours();
+});
+
+// Converte in formato per ApexCharts ed ordina per mese
+const monthOrder = moment.monthsShort();
+return Object.keys(monthlyData)
+.sort((a, b) => monthOrder.indexOf(a) - monthOrder.indexOf(b))
+.map(key => ({
+    x: key,
+    y: monthlyData[key].toFixed(2)
+}));
+}
+
+// Event listener per cambio data
+document.getElementById('customDate').addEventListener('change', (event) => {
+selectedDate = event.target.value;
+fetchAllTimeEntries(selectedDate);
+});
+
+// Inizializzazione dell'app
+document.addEventListener('DOMContentLoaded', async () => {
+try {
+// Ottieni la mappa dei progetti
+await getProjectMap();
+
+// Carica tutti i dati per la data corrente
+fetchAllTimeEntries(selectedDate);
+} catch (error) {
+console.error('Errore durante l\'inizializzazione:', error);
+displayErrorMessage('Errore di inizializzazione. Verifica la connessione e le API key.');
+}
+});
+
+// Aggiunge funzionalità al timer
+const timerElement = document.getElementById('timer');
+const startButton = document.getElementById('startTimer');
+const stopButton = document.getElementById('stopTimer');
+
+let timer = null;
+let seconds = 0;
+let isRunning = false;
+
+/**
+* Avvia il timer
+*/
+function startTimer() {
+if (isRunning) return;
+
+isRunning = true;
+timer = setInterval(() => {
+seconds++;
+updateTimerDisplay();
+}, 1000);
+
+startButton.disabled = true;
+stopButton.disabled = false;
+}
+
+/**
+* Ferma il timer
+*/
+function stopTimer() {
+if (!isRunning) return;
+
+isRunning = false;
+clearInterval(timer);
+seconds = 0;
+updateTimerDisplay();
+
+startButton.disabled = false;
+stopButton.disabled = true;
+}
+
+/**
+* Aggiorna il display del timer
+*/
+function updateTimerDisplay() {
+const hours = Math.floor(seconds / 3600);
+const minutes = Math.floor((seconds % 3600) / 60);
+const secs = seconds % 60;
+
+timerElement.textContent = [
+hours.toString().padStart(2, '0'),
+minutes.toString().padStart(2, '0'),
+secs.toString().padStart(2, '0')
+].join(':');
+}
+
+// Event listeners per i pulsanti del timer
+startButton.addEventListener('click', startTimer);
+stopButton.addEventListener('click', stopTimer);
