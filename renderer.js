@@ -39,35 +39,46 @@ async function fetchProjectMap(workspaceId) {
       console.error("Errore ottenendo i progetti:", error);
       return new Map();
     }
-  }
+}
 
 // Oggetto per mappare i periodi di tempo alle date corrispondenti
 const PERIOD_MAPPING = {
     'today': () => ({
         start: moment().startOf('day').toISOString(),
-        end: moment().endOf('day').toISOString()
+        end: moment().endOf('day').toISOString(),
+        format: 'HH:mm', // Formato per ore
+        groupBy: 'hour' // Raggruppa per ora
     }),
     '3days': () => ({
         start: moment().subtract(3, 'days').startOf('day').toISOString(),
-        end: moment().endOf('day').toISOString()
+        end: moment().endOf('day').toISOString(),
+        format: 'DD/MM', // Formato per giorno
+        groupBy: 'day' // Raggruppa per giorno
     }),
     'week': () => ({
         start: moment().startOf('week').toISOString(),
-        end: moment().endOf('week').toISOString()
+        end: moment().endOf('week').toISOString(),
+        format: 'ddd', // Formato per giorno della settimana
+        groupBy: 'day' // Raggruppa per giorno
     }),
     'month': () => ({
         start: moment().startOf('month').toISOString(),
-        end: moment().endOf('month').toISOString()
+        end: moment().endOf('month').toISOString(),
+        format: 'DD/MM', // Formato per giorno del mese
+        groupBy: 'day' // Raggruppa per giorno
     }),
     'year': () => ({
         start: moment().startOf('year').toISOString(),
-        end: moment().endOf('year').toISOString()
+        end: moment().endOf('year').toISOString(),
+        format: 'MMM', // Formato per mese
+        groupBy: 'month' // Raggruppa per mese
     })
 };
 
 // Variabili globali per i grafici
 let projectTimeChart = null;
 let timeDistributionChart = null;
+let currentPeriod = 'week'; // Periodo attualmente selezionato
 
 /**
  * Recupera le voci temporali da Clockify per un periodo specifico
@@ -75,6 +86,8 @@ let timeDistributionChart = null;
  */
 async function fetchTimeEntries(period = 'week') {
     try {
+        currentPeriod = period; // Salva il periodo corrente
+        
         // Ottiene l'intervallo di date per il periodo selezionato
         const { start, end } = PERIOD_MAPPING[period]();
 
@@ -86,7 +99,7 @@ async function fetchTimeEntries(period = 'week') {
         // Aggiorna gli elementi dell'interfaccia
         updatePeriodDisplay(period);
         displayTimeEntries(response.data);
-        renderCharts(response.data);
+        renderCharts(response.data, period);
     } catch (error) {
         console.error('Errore nel recupero delle voci temporali:', error);
         displayErrorMessage('Impossibile recuperare i dati del periodo');
@@ -145,29 +158,31 @@ function displayTimeEntries(entries) {
 }
 
 /**
- * Estrae il nome del progetto da una voce temporale
- * @param {Object} entry - Voce temporale di Clockify
- * @returns {string} Nome del progetto o 'Nessun Progetto'
+ * Estrae il nome del progetto da un ID di progetto
+ * @param {string} projectId - ID del progetto
+ * @returns {string} Nome del progetto o 'Non Definito'
  */
-function extractProjectName(entry) {
-
-    if(projectMap.has(entry.projectId)){
-        return projectMap.get(entry.projectId);
+function extractProjectName(projectId) {
+    if(projectMap.has(projectId)){
+        return projectMap.get(projectId);
     }
-
-    return 'Not Definined';
+    return 'Non Definito';
 }
 
 /**
- * Genera grafici per distribuzione tempo e progetti
+ * Genera grafici adattati al periodo selezionato
  * @param {Array} entries - Elenco delle voci temporali
+ * @param {string} period - Periodo selezionato
  */
-function renderCharts(entries) {
+function renderCharts(entries, period) {
     // Distrugge i grafici esistenti
     if (projectTimeChart) projectTimeChart.destroy();
     if (timeDistributionChart) timeDistributionChart.destroy();
 
-    // Calcolo tempo per progetto
+    // Recupera le impostazioni per il periodo
+    const { format, groupBy } = PERIOD_MAPPING[period]();
+
+    // Calcolo tempo per progetto (grafico a torta)
     const projectTimes = entries.reduce((acc, entry) => {
         const projectName = extractProjectName(entry.projectId);
         acc[projectName] = (acc[projectName] || 0) + moment.duration(entry.timeInterval.duration).asHours();
@@ -186,6 +201,13 @@ function renderCharts(entries) {
         theme: {
             mode: 'dark'
         },
+        tooltip: {
+            y: {
+                formatter: function(value) {
+                    return value.toFixed(2) + ' ore';
+                }
+            }
+        },
         noData: {
             text: 'Nessun dato disponibile',
             align: 'center',
@@ -197,21 +219,34 @@ function renderCharts(entries) {
     });
     projectTimeChart.render();
 
-    // Raggruppa dati per distribuzione temporale
-    const groupedData = entries.reduce((acc, entry) => {
-        const day = moment(entry.timeInterval.start).format('ddd');
-        acc[day] = (acc[day] || 0) + moment.duration(entry.timeInterval.duration).asHours();
-        return acc;
-    }, {});
+    // Raggruppa dati per il periodo appropriato
+    const timeData = groupTimeData(entries, period, format, groupBy);
+
+    // Configura il titolo del grafico in base al periodo
+    let chartTitle = 'Distribuzione del tempo';
+    switch(period) {
+        case 'today':
+            chartTitle = 'Ore del giorno';
+            break;
+        case '3days':
+            chartTitle = 'Ultimi 3 giorni';
+            break;
+        case 'week':
+            chartTitle = 'Giorni della settimana';
+            break;
+        case 'month':
+            chartTitle = 'Giorni del mese';
+            break;
+        case 'year':
+            chartTitle = 'Mesi dell\'anno';
+            break;
+    }
 
     // Grafico a barre per distribuzione tempo
     timeDistributionChart = new ApexCharts(document.getElementById('timeDistributionChart'), {
         series: [{
             name: 'Ore',
-            data: Object.entries(groupedData).map(([day, hours]) => ({
-                x: day,
-                y: hours.toFixed(2)
-            }))
+            data: timeData
         }],
         chart: {
             type: 'bar',
@@ -221,8 +256,44 @@ function renderCharts(entries) {
         theme: {
             mode: 'dark'
         },
+        title: {
+            text: chartTitle,
+            align: 'center',
+            style: {
+                color: '#fff'
+            }
+        },
         xaxis: {
-            type: 'category'
+            type: 'category',
+            labels: {
+                rotate: period === 'month' ? -45 : 0, // Ruota le etichette per mesi lunghi
+                style: {
+                    colors: '#fff'
+                }
+            }
+        },
+        yaxis: {
+            title: {
+                text: 'Ore',
+                style: {
+                    color: '#fff'
+                }
+            },
+            labels: {
+                formatter: function(val) {
+                    return val.toFixed(1);
+                },
+                style: {
+                    colors: '#fff'
+                }
+            }
+        },
+        tooltip: {
+            y: {
+                formatter: function(value) {
+                    return value.toFixed(2) + ' ore';
+                }
+            }
         },
         noData: {
             text: 'Nessun dato disponibile',
@@ -234,6 +305,77 @@ function renderCharts(entries) {
         }
     });
     timeDistributionChart.render();
+}
+
+/**
+ * Aggrega i dati temporali in base al periodo selezionato
+ * @param {Array} entries - Elenco delle voci temporali
+ * @param {string} period - Periodo selezionato
+ * @param {string} format - Formato di visualizzazione data/ora
+ * @param {string} groupBy - Tipo di raggruppamento (hour, day, month)
+ * @returns {Array} Dati aggregati per il grafico
+ */
+function groupTimeData(entries, period, format, groupBy) {
+    const groupedData = {};
+    let sortedKeys = [];
+
+    // Raggruppa i dati in base al periodo
+    entries.forEach(entry => {
+        let key;
+        const startTime = moment(entry.timeInterval.start);
+        
+        if (groupBy === 'hour') {
+            // Raggruppa per ora (per 'today')
+            key = startTime.format('HH:00');
+        } else if (groupBy === 'day') {
+            // Raggruppa per giorno (per '3days', 'week', 'month')
+            if (period === 'week') {
+                key = startTime.format('ddd'); // Abbreviazione giorno settimana
+            } else {
+                key = startTime.format('DD/MM'); // Giorno/Mese
+            }
+        } else if (groupBy === 'month') {
+            // Raggruppa per mese (per 'year')
+            key = startTime.format('MMM'); // Abbreviazione mese
+        }
+
+        // Somma le ore per gruppo
+        groupedData[key] = (groupedData[key] || 0) + moment.duration(entry.timeInterval.duration).asHours();
+    });
+
+    // Ordina le chiavi in base al periodo
+    if (period === 'today') {
+        // Ordina per ora del giorno (00:00 a 23:00)
+        sortedKeys = Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`).filter(key => key in groupedData);
+    } else if (period === 'week') {
+        // Ordina per giorno della settimana (Lun-Dom)
+        const weekdayOrder = moment.weekdaysShort().map(d => d.substring(0, 3));
+        sortedKeys = Object.keys(groupedData).sort((a, b) => weekdayOrder.indexOf(a) - weekdayOrder.indexOf(b));
+    } else if (period === 'year') {
+        // Ordina per mese (Gen-Dic)
+        const monthOrder = moment.monthsShort();
+        sortedKeys = Object.keys(groupedData).sort((a, b) => monthOrder.indexOf(a) - monthOrder.indexOf(b));
+    } else {
+        // Ordina cronologicamente per altri periodi
+        sortedKeys = Object.keys(groupedData).sort((a, b) => {
+            if (period === '3days' || period === 'month') {
+                // Per formato DD/MM
+                const [dayA, monthA] = a.split('/').map(Number);
+                const [dayB, monthB] = b.split('/').map(Number);
+                
+                if (monthA !== monthB) return monthA - monthB;
+                return dayA - dayB;
+            }
+            
+            return a.localeCompare(b);
+        });
+    }
+
+    // Converte in formato per ApexCharts
+    return sortedKeys.map(key => ({
+        x: key,
+        y: groupedData[key].toFixed(2)
+    }));
 }
 
 // Aggiunge event listener ai bottoni del periodo
