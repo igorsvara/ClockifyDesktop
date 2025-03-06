@@ -18,6 +18,14 @@ const clockifyApi = axios.create({
     }
 });
 
+// Oggetti per i grafici
+let projectTimeChart = null;
+let dailyChart = null;
+let threeDaysChart = null;
+let weeklyChart = null;
+let monthlyChart = null;
+let yearlyChart = null;
+
 // Ottengo la mappa dei progetti per visualizzare i nomi dei progetti
 async function getProjectMap() {
     projectMap = await fetchProjectMap(WORKSPACE_ID);
@@ -75,49 +83,63 @@ const PERIOD_MAPPING = {
     })
 };
 
-
-// Variabili globali per i grafici
-let projectTimeChart = null;
-let timeDistributionChart = null;
-let currentPeriod = 'week'; // Periodo attualmente selezionato
-let selectedDate = moment().format('YYYY-MM-DD'); // Data selezionata, di default è la data odierna
+// Data selezionata, di default è la data odierna
+let selectedDate = moment().format('YYYY-MM-DD');
 
 /**
- * Recupera le voci temporali da Clockify per un periodo specifico
- * @param {string} period - Periodo di tempo da recuperare (oggi, 3 giorni, settimana, mese, anno)
- * @param {string} date - Data selezionata
+ * Aggiorna e visualizza la data selezionata
  */
-async function fetchTimeEntries(period = 'week', date = moment().format('YYYY-MM-DD')) {
-    try {
-        const { start, end } = PERIOD_MAPPING[period](date);
-
-        const response = await clockifyApi.get(`/workspaces/${WORKSPACE_ID}/user/${USER_ID}/time-entries`, {
-            params: { 'start': start, 'end': end, 'page': 1, 'page-size': 1000 }
-        });
-        
-        updatePeriodDisplay(period);
-        displayTimeEntries(response.data);
-        renderCharts(response.data, period);
-    } catch (error) {
-        console.error('Errore nel recupero delle voci temporali:', error);
+function updateDateDisplay() {
+    const dateDisplay = document.getElementById('selectedDateDisplay');
+    const formattedDate = moment(selectedDate).format('DD MMMM YYYY');
+    
+    // Controlla se la data è oggi
+    if (moment(selectedDate).isSame(moment(), 'day')) {
+        dateDisplay.textContent = `Data selezionata: Oggi (${formattedDate})`;
+    } else {
+        dateDisplay.textContent = `Data selezionata: ${formattedDate}`;
     }
+    
+    // Aggiorna il valore dell'input date
+    document.getElementById('customDate').value = selectedDate;
 }
 
 /**
- * Aggiorna la visualizzazione dei bottoni del periodo
- * @param {string} period - Periodo attualmente selezionato
+ * Recupera tutte le voci temporali per tutti i periodi
+ * @param {string} date - Data selezionata
  */
-function updatePeriodDisplay(period) {
-    const periodButtons = document.querySelectorAll('.period-btn');
-    periodButtons.forEach(btn => {
-        btn.classList.remove('bg-green-600');
-        btn.classList.add('bg-gray-700');
+async function fetchAllTimeEntries(date) {
+    try {
+        // Aggiorna il display della data
+        updateDateDisplay();
         
-        if (btn.dataset.period === period) {
-            btn.classList.remove('bg-gray-700');
-            btn.classList.add('bg-green-600');
+        // Fetch dati per tutti i periodi
+        const periods = ['today', '3days', 'week', 'month', 'year'];
+        
+        // Prepara un oggetto per memorizzare tutte le entries per periodo
+        const allEntriesByPeriod = {};
+        
+        // Carica i dati per ciascun periodo
+        for (const period of periods) {
+            const { start, end } = PERIOD_MAPPING[period](date);
+            
+            const response = await clockifyApi.get(`/workspaces/${WORKSPACE_ID}/user/${USER_ID}/time-entries`, {
+                params: { 'start': start, 'end': end, 'page': 1, 'page-size': 1000 }
+            });
+            
+            allEntriesByPeriod[period] = response.data;
         }
-    });
+        
+        // Mostra le voci temporali usando i dati del periodo settimana
+        displayTimeEntries(allEntriesByPeriod['week']);
+        
+        // Renderizza tutti i grafici
+        renderAllCharts(allEntriesByPeriod);
+        
+    } catch (error) {
+        console.error('Errore nel recupero delle voci temporali:', error);
+        displayErrorMessage('Errore nel recuperare i dati. Controlla la connessione e le chiavi API.');
+    }
 }
 
 /**
@@ -167,18 +189,34 @@ function extractProjectName(projectId) {
 }
 
 /**
- * Genera grafici adattati al periodo selezionato
- * @param {Array} entries - Elenco delle voci temporali
- * @param {string} period - Periodo selezionato
+ * Renderizza tutti i grafici per tutti i periodi
+ * @param {Object} allEntriesByPeriod - Oggetto con le voci temporali per ciascun periodo
  */
-function renderCharts(entries, period) {
+function renderAllCharts(allEntriesByPeriod) {
     // Distrugge i grafici esistenti
     if (projectTimeChart) projectTimeChart.destroy();
-    if (timeDistributionChart) timeDistributionChart.destroy();
+    if (dailyChart) dailyChart.destroy();
+    if (threeDaysChart) threeDaysChart.destroy();
+    if (weeklyChart) weeklyChart.destroy();
+    if (monthlyChart) monthlyChart.destroy();
+    if (yearlyChart) yearlyChart.destroy();
+    
+    // Renderizza il grafico del tempo per progetto (usa i dati della settimana)
+    renderProjectTimeChart(allEntriesByPeriod['week']);
+    
+    // Renderizza i grafici temporali per ciascun periodo
+    renderDailyChart(allEntriesByPeriod['today']);
+    renderThreeDaysChart(allEntriesByPeriod['3days']);
+    renderWeeklyChart(allEntriesByPeriod['week']);
+    renderMonthlyChart(allEntriesByPeriod['month']);
+    renderYearlyChart(allEntriesByPeriod['year']);
+}
 
-    // Recupera le impostazioni per il periodo
-    const { format, groupBy } = PERIOD_MAPPING[period]();
-
+/**
+ * Renderizza il grafico a torta per il tempo per progetto
+ * @param {Array} entries - Elenco delle voci temporali
+ */
+function renderProjectTimeChart(entries) {
     // Calcolo tempo per progetto (grafico a torta)
     const projectTimes = entries.reduce((acc, entry) => {
         const projectName = extractProjectName(entry.projectId);
@@ -215,55 +253,52 @@ function renderCharts(entries, period) {
         }
     });
     projectTimeChart.render();
+}
 
-    // Raggruppa dati per il periodo appropriato
-    const timeData = groupTimeData(entries, period, format, groupBy);
-
-    // Configura il titolo del grafico in base al periodo
-    let chartTitle = 'Distribuzione del tempo';
-    switch(period) {
-        case 'today':
-            chartTitle = 'Ore del giorno';
-            break;
-        case '3days':
-            chartTitle = 'Ultimi 3 giorni';
-            break;
-        case 'week':
-            chartTitle = 'Giorni della settimana';
-            break;
-        case 'month':
-            chartTitle = 'Giorni del mese';
-            break;
-        case 'year':
-            chartTitle = 'Mesi dell\'anno';
-            break;
-    }
-
-    // Grafico a barre per distribuzione tempo
-    timeDistributionChart = new ApexCharts(document.getElementById('timeDistributionChart'), {
+/**
+ * Renderizza il grafico a linee per il giorno corrente
+ * @param {Array} entries - Elenco delle voci temporali
+ */
+function renderDailyChart(entries) {
+    // Raggruppa i dati per ora
+    const hourlyData = groupTimeDataByHour(entries);
+    
+    // Grafico a linea per il giorno
+    dailyChart = new ApexCharts(document.getElementById('dailyChart'), {
         series: [{
             name: 'Ore',
-            data: timeData
+            data: hourlyData.map(item => item.y)
         }],
         chart: {
-            type: 'bar',
-            height: 350,
-            background: '#1E1E1E'
+            type: 'line',
+            height: 250,
+            background: '#1E1E1E',
+            animations: {
+                enabled: true,
+                easing: 'easeinout',
+                speed: 800
+            }
+        },
+        stroke: {
+            curve: 'smooth',
+            width: 3
+        },
+        markers: {
+            size: 4
         },
         theme: {
             mode: 'dark'
         },
         title: {
-            text: chartTitle,
+            text: 'Andamento del giorno ' + moment(selectedDate).format('DD/MM/YYYY'),
             align: 'center',
             style: {
                 color: '#fff'
             }
         },
         xaxis: {
-            type: 'category',
+            categories: hourlyData.map(item => item.x),
             labels: {
-                rotate: period === 'month' ? -45 : 0, // Ruota le etichette per mesi lunghi
                 style: {
                     colors: '#fff'
                 }
@@ -301,97 +336,371 @@ function renderCharts(entries, period) {
             }
         }
     });
-    timeDistributionChart.render();
+    dailyChart.render();
 }
 
 /**
- * Aggrega i dati temporali in base al periodo selezionato
+ * Renderizza il grafico a barre per gli ultimi 3 giorni
  * @param {Array} entries - Elenco delle voci temporali
- * @param {string} period - Periodo selezionato
- * @param {string} format - Formato di visualizzazione data/ora
- * @param {string} groupBy - Tipo di raggruppamento (hour, day, month)
- * @returns {Array} Dati aggregati per il grafico
  */
-function groupTimeData(entries, period, format, groupBy) {
-    const groupedData = {};
-    let sortedKeys = [];
-
-    // Raggruppa i dati in base al periodo
-    entries.forEach(entry => {
-        let key;
-        const startTime = moment(entry.timeInterval.start);
-        
-        if (groupBy === 'hour') {
-            // Raggruppa per ora (per 'today')
-            key = startTime.format('HH:00');
-        } else if (groupBy === 'day') {
-            // Raggruppa per giorno (per '3days', 'week', 'month')
-            if (period === 'week') {
-                key = startTime.format('ddd'); // Abbreviazione giorno settimana
-            } else {
-                key = startTime.format('DD/MM'); // Giorno/Mese
+function renderThreeDaysChart(entries) {
+    // Raggruppa i dati per giorno
+    const dailyData = groupTimeDataByDay(entries, '3days');
+    
+    // Grafico a barre per 3 giorni
+    threeDaysChart = new ApexCharts(document.getElementById('threeDaysChart'), {
+        series: [{
+            name: 'Ore',
+            data: dailyData.map(item => item.y)
+        }],
+        chart: {
+            type: 'bar',
+            height: 250,
+            background: '#1E1E1E'
+        },
+        theme: {
+            mode: 'dark'
+        },
+        colors: ['#3F51B5'],
+        title: {
+            text: 'Ultimi 3 giorni',
+            align: 'center',
+            style: {
+                color: '#fff'
             }
-        } else if (groupBy === 'month') {
-            // Raggruppa per mese (per 'year')
-            key = startTime.format('MMM'); // Abbreviazione mese
+        },
+        xaxis: {
+            categories: dailyData.map(item => item.x),
+            labels: {
+                style: {
+                    colors: '#fff'
+                }
+            }
+        },
+        yaxis: {
+            title: {
+                text: 'Ore',
+                style: {
+                    color: '#fff'
+                }
+            },
+            labels: {
+                formatter: function(val) {
+                    return val.toFixed(1);
+                },
+                style: {
+                    colors: '#fff'
+                }
+            }
+        },
+        tooltip: {
+            y: {
+                formatter: function(value) {
+                    return value.toFixed(2) + ' ore';
+                }
+            }
+        },
+        noData: {
+            text: 'Nessun dato disponibile',
+            align: 'center',
+            verticalAlign: 'middle',
+            style: {
+                color: '#888'
+            }
         }
-
-        // Somma le ore per gruppo
-        groupedData[key] = (groupedData[key] || 0) + moment.duration(entry.timeInterval.duration).asHours();
     });
-
-    // Ordina le chiavi in base al periodo
-    if (period === 'today') {
-        // Ordina per ora del giorno (00:00 a 23:00)
-        sortedKeys = Array.from({ length: 24 }, (_, i) => `${i.toString().padStart(2, '0')}:00`).filter(key => key in groupedData);
-    } else if (period === 'week') {
-        // Ordina per giorno della settimana (Lun-Dom)
-        const weekdayOrder = moment.weekdaysShort().map(d => d.substring(0, 3));
-        sortedKeys = Object.keys(groupedData).sort((a, b) => weekdayOrder.indexOf(a) - weekdayOrder.indexOf(b));
-    } else if (period === 'year') {
-        // Ordina per mese (Gen-Dic)
-        const monthOrder = moment.monthsShort();
-        sortedKeys = Object.keys(groupedData).sort((a, b) => monthOrder.indexOf(a) - monthOrder.indexOf(b));
-    } else {
-        // Ordina cronologicamente per altri periodi
-        sortedKeys = Object.keys(groupedData).sort((a, b) => {
-            if (period === '3days' || period === 'month') {
-                // Per formato DD/MM
-                const [dayA, monthA] = a.split('/').map(Number);
-                const [dayB, monthB] = b.split('/').map(Number);
-                
-                if (monthA !== monthB) return monthA - monthB;
-                return dayA - dayB;
-            }
-            
-            return a.localeCompare(b);
-        });
-    }
-
-    // Converte in formato per ApexCharts
-    return sortedKeys.map(key => ({
-        x: key,
-        y: groupedData[key].toFixed(2)
-    }));
+    threeDaysChart.render();
 }
 
-// Aggiunge event listener ai bottoni del periodo
-document.querySelectorAll('.period-btn').forEach(button => {
-    button.addEventListener('click', (e) => {
-        currentPeriod = e.target.dataset.period;
-        fetchTimeEntries(currentPeriod, selectedDate);
+/**
+ * Renderizza il grafico a barre per la settimana corrente
+ * @param {Array} entries - Elenco delle voci temporali
+ */
+function renderWeeklyChart(entries) {
+    // Raggruppa i dati per giorno
+    const weeklyData = groupTimeDataByDay(entries, 'week');
+    
+    // Grafico a barre per la settimana
+    weeklyChart = new ApexCharts(document.getElementById('weeklyChart'), {
+        series: [{
+            name: 'Ore',
+            data: weeklyData.map(item => item.y)
+        }],
+        chart: {
+            type: 'bar',
+            height: 250,
+            background: '#1E1E1E'
+        },
+        theme: {
+            mode: 'dark'
+        },
+        colors: ['#4CAF50'],
+        title: {
+            text: 'Settimana del ' + moment(selectedDate).startOf('week').format('DD/MM/YYYY'),
+            align: 'center',
+            style: {
+                color: '#fff'
+            }
+        },
+        xaxis: {
+            categories: weeklyData.map(item => item.x),
+            labels: {
+                style: {
+                    colors: '#fff'
+                }
+            }
+        },
+        yaxis: {
+            title: {
+                text: 'Ore',
+                style: {
+                    color: '#fff'
+                }
+            },
+            labels: {
+                formatter: function(val) {
+                    return val.toFixed(1);
+                },
+                style: {
+                    colors: '#fff'
+                }
+            }
+        },
+        tooltip: {
+            y: {
+                formatter: function(value) {
+                    return value.toFixed(2) + ' ore';
+                }
+            }
+        },
+        noData: {
+            text: 'Nessun dato disponibile',
+            align: 'center',
+            verticalAlign: 'middle',
+            style: {
+                color: '#888'
+            }
+        }
     });
-});
+    weeklyChart.render();
+}
 
-// Ottieni la mappa dei progetti
-getProjectMap();
+/**
+ * Renderizza il grafico a barre per il mese corrente
+ * @param {Array} entries - Elenco delle voci temporali
+ */
+function renderMonthlyChart(entries) {
+    // Raggruppa i dati per giorno
+    const monthlyData = groupTimeDataByDay(entries, 'month');
+    
+    // Grafico a barre per il mese
+    monthlyChart = new ApexCharts(document.getElementById('monthlyChart'), {
+        series: [{
+            name: 'Ore',
+            data: monthlyData.map(item => item.y)
+        }],
+        chart: {
+            type: 'bar',
+            height: 250,
+            background: '#1E1E1E'
+        },
+        theme: {
+            mode: 'dark'
+        },
+        colors: ['#FF5722'],
+        title: {
+            text: 'Mese di ' + moment(selectedDate).format('MMMM YYYY'),
+            align: 'center',
+            style: {
+                color: '#fff'
+            }
+        },
+        xaxis: {
+            categories: monthlyData.map(item => item.x),
+            labels: {
+                rotate: -45,
+                style: {
+                    colors: '#fff'
+                }
+            }
+        },
+        yaxis: {
+            title: {
+                text: 'Ore',
+                style: {
+                    color: '#fff'
+                }
+            },
+            labels: {
+                formatter: function(val) {
+                    return val.toFixed(1);
+                },
+                style: {
+                    colors: '#fff'
+                }
+            }
+        },
+        tooltip: {
+            y: {
+                formatter: function(value) {
+                    return value.toFixed(2) + ' ore';
+                }
+            }
+        },
+        noData: {
+            text: 'Nessun dato disponibile',
+            align: 'center',
+            verticalAlign: 'middle',
+            style: {
+                color: '#888'
+            }
+        }
+    });
+    monthlyChart.render();
+}
 
-document.getElementById('customDate').addEventListener('change', (event) => {
-    selectedDate = event.target.value;
-    fetchTimeEntries(currentPeriod, selectedDate);
-});
+/**
+ * Renderizza il grafico a barre per l'anno corrente
+ * @param {Array} entries - Elenco delle voci temporali
+ */
+function renderYearlyChart(entries) {
+    // Raggruppa i dati per mese
+    const yearlyData = groupTimeDataByMonth(entries);
+    
+    // Grafico a barre per l'anno
+    yearlyChart = new ApexCharts(document.getElementById('yearlyChart'), {
+        series: [{
+            name: 'Ore',
+            data: yearlyData.map(item => item.y)
+        }],
+        chart: {
+            type: 'bar',
+            height: 250,
+            background: '#1E1E1E'
+        },
+        theme: {
+            mode: 'dark'
+        },
+        colors: ['#9C27B0'],
+        title: {
+            text: 'Anno ' + moment(selectedDate).format('YYYY'),
+            align: 'center',
+            style: {
+                color: '#fff'
+            }
+        },
+        xaxis: {
+            categories: yearlyData.map(item => item.x),
+            labels: {
+                style: {
+                    colors: '#fff'
+                }
+            }
+        },
+        yaxis: {
+            title: {
+                text: 'Ore',
+                style: {
+                    color: '#fff'
+                }
+            },
+            labels: {
+                formatter: function(val) {
+                    return val.toFixed(1);
+                },
+                style: {
+                    colors: '#fff'
+                }
+            }
+        },
+        tooltip: {
+            y: {
+                formatter: function(value) {
+                    return value.toFixed(2) + ' ore';
+                }
+            }
+        },
+        noData: {
+            text: 'Nessun dato disponibile',
+            align: 'center',
+            verticalAlign: 'middle',
+            style: {
+                color: '#888'
+            }
+        }
+    });
+    yearlyChart.render();
+}
 
-// Caricamento iniziale dei dati (settimana corrente)
-document.addEventListener('DOMContentLoaded', () => {
-    fetchTimeEntries(currentPeriod, selectedDate);
-});
+/**
+ * Raggruppa i dati temporali per ora (grafico giornaliero)
+ * @param {Array} entries - Elenco delle voci temporali
+ * @returns {Array} Dati aggregati per il grafico
+ */
+function groupTimeDataByHour(entries) {
+    const hourlyData = {};
+    
+    // Crea tutte le ore del giorno (0-23) con valore 0
+    for (let i = 0; i < 24; i++) {
+        const hourKey = `${i.toString().padStart(2, '0')}:00`;
+        hourlyData[hourKey] = 0;
+    }
+    
+    // Somma le ore per ogni voce temporale
+    entries.forEach(entry => {
+        const startTime = moment(entry.timeInterval.start);
+        const endTime = moment(entry.timeInterval.end);
+        const durationHours = moment.duration(entry.timeInterval.duration).asHours();
+        
+        // Se la registrazione è molto breve, aggiungila semplicemente all'ora di inizio
+        if (durationHours < 1 || startTime.hour() === endTime.hour()) {
+            const hourKey = startTime.format('HH:00');
+            hourlyData[hourKey] += durationHours;
+        } else {
+            // Altrimenti, distribuisci la durata tra le ore coperte
+            let currentHour = moment(startTime);
+            while (currentHour.isBefore(endTime)) {
+                const hourKey = currentHour.format('HH:00');
+                
+                // Calcola quanto tempo in questa ora (massimo 1 ora)
+                const nextHour = moment(currentHour).add(1, 'hour').startOf('hour');
+                const endOfSegment = moment.min(nextHour, endTime);
+                const segmentDuration = moment.duration(endOfSegment.diff(currentHour)).asHours();
+                
+                hourlyData[hourKey] += segmentDuration;
+                currentHour = nextHour;
+            }
+        }
+    });
+    
+    // Converte in formato per ApexCharts
+    return Object.keys(hourlyData)
+        .map(key => ({
+            x: key,
+            y: hourlyData[key].toFixed(2)
+        }))
+        .sort((a, b) => a.x.localeCompare(b.x)); // Ordina per ora
+}
+
+/**
+ * Raggruppa i dati temporali per giorno
+ * @param {Array} entries - Elenco delle voci temporali
+ * @param {string} period - Periodo selezionato ('3days', 'week', 'month')
+ * @returns {Array} Dati aggregati per il grafico
+ */
+function groupTimeDataByDay(entries, period) {
+    const dailyData = {};
+    let sortedKeys = [];
+    
+    // Aggrega le ore per giorno
+    entries.forEach(entry => {
+        const startTime = moment(entry.timeInterval.start);
+        let key;
+        
+        if (period === 'week') {
+            key = startTime.format('ddd'); // Abbreviazione giorno settimana
+        } else {
+            key = startTime.format('DD/MM'); // Giorno/Mese
+        }
+        
+        dailyData[key] = (dailyData[key] || 0) + moment.duration(entry.timeInterval.duration
