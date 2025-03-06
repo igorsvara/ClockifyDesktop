@@ -43,66 +43,63 @@ async function fetchProjectMap(workspaceId) {
 
 // Oggetto per mappare i periodi di tempo alle date corrispondenti
 const PERIOD_MAPPING = {
-    'today': () => ({
-        start: moment().startOf('day').toISOString(),
-        end: moment().endOf('day').toISOString(),
-        format: 'HH:mm', // Formato per ore
-        groupBy: 'hour' // Raggruppa per ora
+    'today': (date) => ({
+        start: moment(date).startOf('day').toISOString(),
+        end: moment(date).endOf('day').toISOString(),
+        format: 'HH:mm',
+        groupBy: 'hour'
     }),
-    '3days': () => ({
-        start: moment().subtract(3, 'days').startOf('day').toISOString(),
-        end: moment().endOf('day').toISOString(),
-        format: 'DD/MM', // Formato per giorno
-        groupBy: 'day' // Raggruppa per giorno
+    '3days': (date) => ({
+        start: moment(date).subtract(2, 'days').startOf('day').toISOString(),
+        end: moment(date).endOf('day').toISOString(),
+        format: 'DD/MM',
+        groupBy: 'day'
     }),
-    'week': () => ({
-        start: moment().startOf('week').toISOString(),
-        end: moment().endOf('week').toISOString(),
-        format: 'ddd', // Formato per giorno della settimana
-        groupBy: 'day' // Raggruppa per giorno
+    'week': (date) => ({
+        start: moment(date).startOf('week').toISOString(),
+        end: moment(date).endOf('week').toISOString(),
+        format: 'ddd',
+        groupBy: 'day'
     }),
-    'month': () => ({
-        start: moment().startOf('month').toISOString(),
-        end: moment().endOf('month').toISOString(),
-        format: 'DD/MM', // Formato per giorno del mese
-        groupBy: 'day' // Raggruppa per giorno
+    'month': (date) => ({
+        start: moment(date).startOf('month').toISOString(),
+        end: moment(date).endOf('month').toISOString(),
+        format: 'DD/MM',
+        groupBy: 'day'
     }),
-    'year': () => ({
-        start: moment().startOf('year').toISOString(),
-        end: moment().endOf('year').toISOString(),
-        format: 'MMM', // Formato per mese
-        groupBy: 'month' // Raggruppa per mese
+    'year': (date) => ({
+        start: moment(date).startOf('year').toISOString(),
+        end: moment(date).endOf('year').toISOString(),
+        format: 'MMM',
+        groupBy: 'month'
     })
 };
+
 
 // Variabili globali per i grafici
 let projectTimeChart = null;
 let timeDistributionChart = null;
 let currentPeriod = 'week'; // Periodo attualmente selezionato
+let selectedDate = moment().format('YYYY-MM-DD'); // Data selezionata, di default è la data odierna
 
 /**
  * Recupera le voci temporali da Clockify per un periodo specifico
  * @param {string} period - Periodo di tempo da recuperare (oggi, 3 giorni, settimana, mese, anno)
+ * @param {string} date - Data selezionata
  */
-async function fetchTimeEntries(period = 'week') {
+async function fetchTimeEntries(period = 'week', date = moment().format('YYYY-MM-DD')) {
     try {
-        currentPeriod = period; // Salva il periodo corrente
-        
-        // Ottiene l'intervallo di date per il periodo selezionato
-        const { start, end } = PERIOD_MAPPING[period]();
+        const { start, end } = PERIOD_MAPPING[period](date);
 
-        // Richiesta API per recuperare le voci temporali
         const response = await clockifyApi.get(`/workspaces/${WORKSPACE_ID}/user/${USER_ID}/time-entries`, {
             params: { 'start': start, 'end': end, 'page': 1, 'page-size': 1000 }
         });
         
-        // Aggiorna gli elementi dell'interfaccia
         updatePeriodDisplay(period);
         displayTimeEntries(response.data);
         renderCharts(response.data, period);
     } catch (error) {
         console.error('Errore nel recupero delle voci temporali:', error);
-        displayErrorMessage('Impossibile recuperare i dati del periodo');
     }
 }
 
@@ -381,15 +378,20 @@ function groupTimeData(entries, period, format, groupBy) {
 // Aggiunge event listener ai bottoni del periodo
 document.querySelectorAll('.period-btn').forEach(button => {
     button.addEventListener('click', (e) => {
-        const period = e.target.dataset.period;
-        fetchTimeEntries(period);
+        currentPeriod = e.target.dataset.period;
+        fetchTimeEntries(currentPeriod, selectedDate);
     });
 });
 
-// Ottinieni la mappa dei progetti
+// Ottieni la mappa dei progetti
 getProjectMap();
+
+document.getElementById('customDate').addEventListener('change', (event) => {
+    selectedDate = event.target.value;
+    fetchTimeEntries(currentPeriod, selectedDate);
+});
 
 // Caricamento iniziale dei dati (settimana corrente)
 document.addEventListener('DOMContentLoaded', () => {
-    fetchTimeEntries('week');
+    fetchTimeEntries(currentPeriod, selectedDate);
 });
